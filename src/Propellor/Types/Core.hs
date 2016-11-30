@@ -2,6 +2,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Propellor.Types.Core where
 
@@ -11,7 +13,9 @@ import Propellor.Types.Result
 
 import Data.Monoid
 import "mtl" Control.Monad.RWS.Strict
+import Control.Monad.Base
 import Control.Monad.Catch
+import Control.Monad.Trans.Control
 import Control.Applicative
 import Prelude
 
@@ -31,6 +35,7 @@ newtype Propellor p = Propellor { runWithHost :: RWST Host [EndAction] () IO p }
 		( Monad
 		, Functor
 		, Applicative
+                , MonadBase IO
 		, MonadReader Host
 		, MonadWriter [EndAction]
 		, MonadIO
@@ -38,6 +43,18 @@ newtype Propellor p = Propellor { runWithHost :: RWST Host [EndAction] () IO p }
 		, MonadThrow
 		, MonadMask
 		)
+
+newtype StMPropellor p = StMPropellor { unStMPropellor :: StM (RWST Host [EndAction] () IO) p }
+
+instance MonadBaseControl IO Propellor where
+    type StM (Propellor) p = StMPropellor p
+    liftBaseWith f = Propellor
+                        $ liftBaseWith
+                        $ \g' -> f
+                        $ \m -> liftM StMPropellor
+                        $ g' $ runWithHost m
+    restoreM = Propellor . restoreM . unStMPropellor
+
 
 class LiftPropellor m where
 	liftPropellor :: m a -> Propellor a
